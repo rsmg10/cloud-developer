@@ -15,7 +15,10 @@ import { filterImageFromURL, deleteLocalFiles } from "./util/util";
   // @TODO1 IMPLEMENT A RESTFUL ENDPOINT
 
   app.get("/filteredimage", async (req, res) => {
-    const image_url = req.query.image_url;
+    const { image_url } = req.query;
+
+    if (typeof image_url != "string")
+      return res.status(422).send("invalid image url");
 
     if (!image_url) return res.status(422).send("invalid image url"); //    1. validate the image_url query
     const filteredImage = await filterImageFromURL(image_url); //    2. call filterImageFromURL(image_url) to filter the image
