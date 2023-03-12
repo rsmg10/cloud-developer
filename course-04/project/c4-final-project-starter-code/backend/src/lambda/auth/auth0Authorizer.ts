@@ -1,19 +1,26 @@
-import 'source-map-support/register';
-import { APIGatewayTokenAuthorizerEvent, APIGatewayAuthorizerResult } from 'aws-lambda';
-import { verify } from 'jsonwebtoken';
-import JwksRsa, { CertSigningKey } from 'jwks-rsa';
-import { createLogger } from '../../utils/logger';
-import { JwtPayload } from './jwt.d';
+import { CustomAuthorizerEvent, CustomAuthorizerResult } from 'aws-lambda'
+import 'source-map-support/register'
 
-const logger = createLogger('auth');
+import { verify, decode } from 'jsonwebtoken'
+import { createLogger } from '../../utils/logger'
+import Axios from 'axios'
+import { Jwt } from '../../auth/Jwt'
+import { JwtPayload } from '../../auth/JwtPayload'
+import { Jwk } from '../../auth/Jwk'
+
+const logger = createLogger('auth')
+
+const jwksUrl = process.env.AUTH0_JWKS_URL;
+
+let cachedCertificate: string; // Cache Certificate to Avoid always refetching
 
 export const handler = async (
-  event: APIGatewayTokenAuthorizerEvent
-): Promise<APIGatewayAuthorizerResult> => {
-  logger.info('Authorizing an user', event.authorizationToken);
+  event: CustomAuthorizerEvent
+): Promise<CustomAuthorizerResult> => {
+  logger.info('Authorizing a user', event.authorizationToken)
   try {
-    const jwtToken = await verifyToken(event.authorizationToken);
-    logger.info('User was authorized', jwtToken);
+    const jwtToken = await verifyToken(event.authorizationToken)
+    logger.info('User was authorized', jwtToken)
 
     return {
       principalId: jwtToken.sub,
@@ -27,9 +34,9 @@ export const handler = async (
           }
         ]
       }
-    };
-  } catch (error) {
-    logger.error('User not authorized', { error: error.message });
+    }
+  } catch (e) {
+    logger.error('User not authorized', { error: e.message })
 
     return {
       principalId: 'user',
@@ -43,28 +50,89 @@ export const handler = async (
           }
         ]
       }
-    };
+    }
   }
-};
-
-function getToken(authHeader: string): string {
-  if (!authHeader) throw new Error('No authentication header');
-  if (!authHeader.toLowerCase().startsWith('bearer ')) {
-    throw new Error('Invalid authentication header');
-  }
-  const jwtArr = authHeader.split(' ');
-  const token = jwtArr[1];
-  return token;
 }
 
 async function verifyToken(authHeader: string): Promise<JwtPayload> {
-  const token = getToken(authHeader);
+  const token = getToken(authHeader)
+  const jwt: Jwt = decode(token, { complete: true }) as Jwt
 
-  // Auth0 certificate to verify JWT token signature
-  // Auth0: Advanced Settings: Endpoints: JSON Web Key Set
-  const client = JwksRsa({ jwksUri: 'https://dev-h2hsytq5nkg05z6k.us.auth0.com/.well-known/jwks.json' });
-  const kid = '6g-OEDlf8zw0PAetpqHp4';
-  const certSigningKey = (await client.getSigningKeyAsync(kid)) as CertSigningKey;
-   createLogger("loog atu ")
-  return verify(token, certSigningKey.publicKey, { algorithms: ['RS256'] }) as JwtPayload;
+  const kid = jwt.header.kid; // Get the unique identifier for the key
+
+  const cert = await getCertificate(kid); // Get verification certificate
+
+  return verify(token, cert, { algorithms: ['RS256'] }) as JwtPayload
+}
+
+async function getCertificate(kid: string): Promise<string> {
+  /**
+   * Download Verification Certificate from Auth0 JWKS endpoint
+   * or use Cached Valodation
+   */
+  if (cachedCertificate) return cachedCertificate;
+
+  logger.info(`Fetching certificate from Auth0`);
+
+  const response = await Axios.get(jwksUrl);
+  const keys = response.data.keys;
+
+  if (!keys || !keys.length)
+    throw new Error('The JWKS endpoint did not contain any keys');
+
+  const signingKeys = getSigningKeys(keys);
+
+  if (!signingKeys.length)
+    throw new Error('The JWKS endpoint did not contain any signature verification keys');
+  
+  const key = getSigningKey(signingKeys, kid);
+
+  const pub = key.x5c[0]  // Get the public key
+  cachedCertificate = certToPEM(pub)
+
+  logger.info('Valid certificate was downloaded', cachedCertificate)
+
+  return cachedCertificate
+}
+
+function getSigningKeys(keys: Jwk[]): Jwk[] {
+  /**
+   * Get all the Keys intended for verifying a JWT with the keytype of RSA
+   */
+  return keys.filter(
+    key => key.use === 'sig'
+           && key.kty === 'RSA'
+           && key.alg === 'RS256'
+           && key.n
+           && key.e
+           && key.kid
+           && (key.x5c && key.x5c.length)
+  )
+}
+
+function getSigningKey(keys: Jwk[], kid: string): Jwk {
+  /**
+   * Find the exact signature verification key
+   */
+  return keys.find(key => key.kid == kid);
+}
+
+function certToPEM(cert: string): string {
+  /**
+   * Convert Certificate to PEM
+   */
+  cert = `-----BEGIN CERTIFICATE-----\n${cert}\n-----END CERTIFICATE-----\n`
+  return cert
+}
+
+function getToken(authHeader: string): string {
+  if (!authHeader) throw new Error('No authentication header')
+
+  if (!authHeader.toLowerCase().startsWith('bearer '))
+    throw new Error('Invalid authentication header')
+
+  const split = authHeader.split(' ')
+  const token = split[1]
+
+  return token
 }
