@@ -11,12 +11,12 @@ export const handler = middy(
     const newTodo: CreateTodoRequest = JSON.parse(event.body)
     
     const userId = getUserId(event);
-    const todo = createTodo(userId, newTodo)
+    const todoItem = createTodo(userId, newTodo)
 
     return {
       statusCode: 201,
       body: JSON.stringify({
-        item: todo
+        item: todoItem
       })
     }
   }

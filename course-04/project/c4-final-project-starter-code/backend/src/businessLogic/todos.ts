@@ -1,8 +1,8 @@
 import { TodosAccess } from '../dataLayer/todosAcess'
-import { AttachmentUtils } from '../dataLayer/attachmentUtils';
 import { TodoItem } from '../models/TodoItem'
-import { CreateTodoRequest } from '../requests/CreateTodoRequest'
+import { AttachmentUtils } from '../dataLayer/attachmentUtils';
 import { UpdateTodoRequest } from '../requests/UpdateTodoRequest'
+import { CreateTodoRequest } from '../requests/CreateTodoRequest'
 import * as uuid from 'uuid'
 
 const todosAccess = new TodosAccess();
@@ -36,7 +36,6 @@ export async function deleteTodo(userId: string, todoId: string): Promise<TodoIt
 }
 
 export async function createAttachmentPresignedUrl(todoId: string, userId: string): Promise<string> {
-    await todosAccess.updateAttachmentUrl(todoId, userId); // Update Todo attachment URL
-
+    await todosAccess.updateAttachmentUrl(todoId, userId); 
     return await attachmentUtils.createAttachmentPresignedUrl(todoId);
 }

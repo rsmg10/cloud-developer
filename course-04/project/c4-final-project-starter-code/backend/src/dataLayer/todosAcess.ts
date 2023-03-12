@@ -2,8 +2,8 @@ import * as AWS from 'aws-sdk'
 const AWSXRay = require('aws-xray-sdk') 
 import { DocumentClient } from 'aws-sdk/clients/dynamodb'
 import { createLogger } from '../utils/logger'
-import { TodoItem } from '../models/TodoItem'
 import { TodoUpdate } from '../models/TodoUpdate';
+import { TodoItem } from '../models/TodoItem'
 
 const XAWS = AWSXRay.captureAWS(AWS)
 
@@ -13,20 +13,9 @@ export class TodosAccess {
     constructor(
         private readonly docClient: DocumentClient = createDynamoDBClient(),
         private readonly todosTable = process.env.TODOS_TABLE,
+
         private readonly s3Bucket = process.env.ATTACHMENT_S3_BUCKET
     ) {}
-
-    async createTodo(todo: TodoItem): Promise<TodoItem> {
-        logger.info(`Creating todo new ${todo.todoId}`);
-
-        let params = {
-            TableName: this.todosTable,
-            Item: todo
-        }
-        await this.docClient.put(params).promise()
-        return todo;
-    }
-
     async getTodosForUSer(userId: string): Promise<TodoItem[]> {
         logger.info(`Getting all todos for user ${userId}`);
 
@@ -41,33 +30,18 @@ export class TodosAccess {
         const items = result.Items
         return items as TodoItem[];
     }
-
-    async updateTodo(userId: string, todoId: string, updatedTodo: TodoUpdate): Promise<TodoItem> {
-        logger.info(`Updating todo ${todoId}`);
+    async createTodo(todo: TodoItem): Promise<TodoItem> {
+        logger.info(`Creating todo new ${todo.todoId}`);
 
         let params = {
             TableName: this.todosTable,
-            Key: {
-                userId,
-                todoId
-            },
-            UpdateExpression: "set #name = :name, #dueDate = :dueDate, #done = :done",
-            ExpressionAttributeNames: {
-                "#name": "name",
-                "#dueDate": "dueDate",
-                "#done": "done",
-            },
-            ExpressionAttributeValues: {
-                ":name": updatedTodo.name,
-                ":dueDate": updatedTodo.dueDate,
-                ":done": updatedTodo.done,
-            },
-            ReturnValues: "ALL_NEW"
+            Item: todo
         }
-        const result =  await this.docClient.update(params).promise();
-        const item = result.Attributes;
-        return item as TodoItem;
+        await this.docClient.put(params).promise()
+        logger.info("added data to S3 bucket");
+        return todo;
     }
+
 
     async updateAttachmentUrl(todoId: string, userId: string): Promise<TodoItem>{
 
@@ -94,6 +68,34 @@ export class TodosAccess {
         const result = await this.docClient.update(params).promise()
         const item = result.Attributes
         return item as TodoItem
+    }
+
+    async updateTodo(userId: string, todoId: string, updatedTodo: TodoUpdate): Promise<TodoItem> {
+        logger.info(`Updating todo ${todoId}`);
+
+        let params = {
+            TableName: this.todosTable,
+            Key: {
+                userId,
+                todoId
+            },
+            UpdateExpression: "set #name = :name, #dueDate = :dueDate, #done = :done",
+
+            ExpressionAttributeNames: {
+                "#name": "name",
+                "#dueDate": "dueDate",
+                "#done": "done",
+            },
+            ExpressionAttributeValues: {
+                ":name": updatedTodo.name,
+                ":dueDate": updatedTodo.dueDate,
+                ":done": updatedTodo.done,
+            },
+            ReturnValues: "ALL_NEW"
+        }
+        const result =  await this.docClient.update(params).promise();
+        const item = result.Attributes;
+        return item as TodoItem;
     }
 
     async deleteTodo(userId: string, todoId: string): Promise<TodoItem> {
